@@ -11,10 +11,17 @@ class Settings(BaseSettings):
 
     @property
     def sync_database_url(self) -> str:
-        """Fixes postgres:// URI prefix for SQLAlchemy 2.0 compatibility on Render/Supabase."""
-        if self.DATABASE_URL.startswith("postgres://"):
-            return self.DATABASE_URL.replace("postgres://", "postgresql://", 1)
-        return self.DATABASE_URL
+        """Normalize PostgreSQL URLs and require SSL for Supabase."""
+        url = self.DATABASE_URL
+
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
+
+        if "supabase.com" in url and "sslmode" not in url:
+            separator = "&" if "?" in url else "?"
+            url = f"{url}{separator}sslmode=require"
+
+        return url
 
     class Config:
         case_sensitive = True
