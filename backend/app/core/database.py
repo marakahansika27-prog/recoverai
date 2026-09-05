@@ -47,27 +47,35 @@ engine = get_engine()
 
 def init_db():
     eng = get_engine()
-    # Import all models to ensure SQLModel metadata registry is populated
-    try:
-        import app.models.event
-        import app.models.decision
-        import app.models.policy
-        import app.models.audit
-        import app.models.simulation
-        import app.models.account
-        import app.models.hitl
-    except Exception as e:
-        logger.warning(f"Model import notice: {e}")
+
+    # Import each model independently so one optional model import
+    # cannot prevent the core payment_events table from being registered.
+    model_modules = [
+        "app.models.event",
+        "app.models.interaction",   # must precede hitl (FK dependency)
+        "app.models.decision",
+        "app.models.policy",
+        "app.models.audit",
+        "app.models.simulation",
+        "app.models.account",
+        "app.models.hitl",
+    ]
+
+    for module_name in model_modules:
+        try:
+            __import__(module_name)
+        except Exception as e:
+            logger.warning(f"Model import notice for {module_name}: {e}")
 
     try:
         SQLModel.metadata.create_all(eng)
     except Exception as e:
         logger.warning(f"Metadata creation notice: {e}")
-        # Retry with SQLite engine
+
         global _active_engine
         _active_engine = _create_engine_instance(SQLITE_FALLBACK_URL)
-        SQLModel.metadata.create_all(_active_engine)
 
+        SQLModel.metadata.create_all(_active_engine)
 def get_session():
     eng = get_engine()
     with Session(eng) as session:
