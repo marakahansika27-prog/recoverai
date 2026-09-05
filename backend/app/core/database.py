@@ -1,35 +1,52 @@
+import os
 import logging
-from sqlmodel import create_engine, Session, SQLModel
+from sqlmodel import create_engine, Session, SQLModel, text
 from app.core.config import settings
 
 logger = logging.getLogger("uvicorn.error")
 
-SQLITE_FALLBACK_URL = "sqlite:///./recoverai_revenue.db"
+# Consistently anchored absolute path for SQLite fallback DB
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+DB_PATH = os.path.join(BASE_DIR, "recoverai_revenue.db")
+SQLITE_FALLBACK_URL = f"sqlite:///{DB_PATH}"
+
+_active_engine = None
 
 def _create_engine_instance(url_str: str):
     is_sqlite = "sqlite" in url_str
-    try:
-        return create_engine(
-            url_str,
-            connect_args={"check_same_thread": False} if is_sqlite else {},
-            pool_pre_ping=True if not is_sqlite else False,
-        )
-    except Exception as e:
-        logger.warning(f"[DEMO EMERGENCY] Engine creation failed for {url_str[:15]}...: {e}")
-        return create_engine(
-            SQLITE_FALLBACK_URL,
-            connect_args={"check_same_thread": False},
-            pool_pre_ping=False
-        )
+    return create_engine(
+        url_str,
+        connect_args={"check_same_thread": False} if is_sqlite else {},
+        pool_pre_ping=True if not is_sqlite else False,
+    )
 
-# Module-level engine with safe fallback initialization
-try:
-    engine = _create_engine_instance(settings.sync_database_url)
-except Exception:
-    engine = _create_engine_instance(SQLITE_FALLBACK_URL)
+def get_engine():
+    global _active_engine
+    if _active_engine is not None:
+        return _active_engine
+
+    target_url = getattr(settings, "sync_database_url", None) or SQLITE_FALLBACK_URL
+
+    if "sqlite" not in target_url:
+        try:
+            test_eng = _create_engine_instance(target_url)
+            with test_eng.connect() as conn:
+                conn.exec_driver_sql("SELECT 1")
+            _active_engine = test_eng
+            return _active_engine
+        except Exception as e:
+            msg = f"Primary DB connection unreachable ({e}); falling back to local SQLite at {DB_PATH}"
+            logger.warning(msg)
+            print(f"[DEMO RESILIENCE] {msg}")
+
+    _active_engine = _create_engine_instance(SQLITE_FALLBACK_URL)
+    return _active_engine
+
+# Compatibility export
+engine = get_engine()
 
 def init_db():
-    global engine
+    eng = get_engine()
     # Import all models to ensure SQLModel metadata registry is populated
     try:
         import app.models.event
@@ -43,27 +60,15 @@ def init_db():
         logger.warning(f"Model import notice: {e}")
 
     try:
-        # Attempt metadata creation on primary engine
-        SQLModel.metadata.create_all(engine)
-        # Test connection query ping
-        with engine.connect() as conn:
-            pass
+        SQLModel.metadata.create_all(eng)
     except Exception as e:
-        # Guaranteed fallback to local SQLite for demo resilience
-        msg = "External database connection failed; initializing local SQLite fallback for hackathon demo."
-        logger.warning(msg)
-        print(f"[DEMO RESILIENCE] {msg}")
-        engine = _create_engine_instance(SQLITE_FALLBACK_URL)
-        SQLModel.metadata.create_all(engine)
+        logger.warning(f"Metadata creation notice: {e}")
+        # Retry with SQLite engine
+        global _active_engine
+        _active_engine = _create_engine_instance(SQLITE_FALLBACK_URL)
+        SQLModel.metadata.create_all(_active_engine)
 
 def get_session():
-    global engine
-    try:
-        with Session(engine) as session:
-            yield session
-    except Exception:
-        # Emergency session fallback to SQLite
-        engine = _create_engine_instance(SQLITE_FALLBACK_URL)
-        SQLModel.metadata.create_all(engine)
-        with Session(engine) as session:
-            yield session
+    eng = get_engine()
+    with Session(eng) as session:
+        yield session
