@@ -1,5 +1,9 @@
 # RecoverAI — Autonomous Revenue Recovery Agent (Razorpay Buildathon Track 3)
 
+## 🚀 Live Demo
+
+**[RecoverAI — Live Production Demo](https://recoverai-ochre.vercel.app)**
+
 RecoverAI is an enterprise-grade AI revenue recovery platform designed for **Razorpay Buildathon Track 3: AI Revenue Recovery**. It detects revenue at risk from payment failures, checkout abandonments, and subscription renewal failures, diagnoses root causes, predicts action-specific recovery probabilities, optimizes Expected Recovery Value ($ERV = \text{Amount} \times P(\text{Recovery} \mid \text{Action}) - \text{Cost}$), enforces strict deterministic policy guardrails, executes authorized interventions, and maintains an immutable audit trail.
 
 ---
