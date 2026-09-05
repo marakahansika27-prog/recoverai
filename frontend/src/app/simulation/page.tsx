@@ -1,19 +1,45 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PlaySquare, Play, RefreshCw } from "lucide-react";
-import { runBatchSimulation } from "@/lib/api";
+import { runBatchSimulation, fetchLatestBenchmark } from "@/lib/api";
 import { BenchmarkResult } from "@/lib/types";
 
 export default function SimulationPage() {
   const [result, setResult] = useState<BenchmarkResult | null>(null);
   const [running, setRunning] = useState(false);
 
+  useEffect(() => {
+    // Try to load cached benchmark from localStorage or fetch latest from DB
+    try {
+      const cached = localStorage.getItem("recoverai_latest_benchmark");
+      if (cached) {
+        setResult(JSON.parse(cached));
+      }
+    } catch (e) {
+      console.error("Localstorage parse error", e);
+    }
+
+    fetchLatestBenchmark()
+      .then((res) => {
+        if (res) {
+          setResult(res);
+          try {
+            localStorage.setItem("recoverai_latest_benchmark", JSON.stringify(res));
+          } catch (e) {}
+        }
+      })
+      .catch(console.error);
+  }, []);
+
   const handleRunBenchmark = async () => {
     setRunning(true);
     try {
       const res = await runBatchSimulation(10000);
       setResult(res);
+      try {
+        localStorage.setItem("recoverai_latest_benchmark", JSON.stringify(res));
+      } catch (e) {}
     } catch (err) {
       console.error("Benchmark run error:", err);
     } finally {
@@ -41,25 +67,52 @@ export default function SimulationPage() {
           className="px-5 py-2.5 bg-olive-800 hover:bg-olive-700 disabled:opacity-50 text-olive-100 font-bold text-xs rounded shadow transition flex items-center gap-2 border border-olive-600/60 shrink-0"
         >
           {running ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
-          Run 10,000 Event Benchmark
+          {running ? "Simulating 10,000 Events..." : "Run 10,000 Event Benchmark"}
         </button>
       </div>
 
       {result ? (
         <div className="space-y-6">
           {/* Top Lift Callout */}
-          <div className="bg-olive-950/80 border border-olive-800/80 p-4 rounded-lg flex items-center justify-between shadow-sm">
+          <div className="bg-olive-950/80 border border-olive-800/80 p-4 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
             <div>
-              <div className="text-xs text-olive-400 font-semibold uppercase tracking-wider">Measured Incremental Lift</div>
+              <div className="text-xs text-olive-400 font-semibold uppercase tracking-wider">Measured Incremental Recovery Lift</div>
               <div className="text-2xl font-bold text-olive-300 mt-0.5">
                 +₹{result.recoverai.incremental_lift_amount.toLocaleString()}
               </div>
             </div>
-            <div className="text-right">
-              <div className="text-xs text-taupe-400 font-mono">RecoverAI Rate vs Baseline</div>
+            <div className="text-left sm:text-right">
+              <div className="text-xs text-taupe-400 font-mono">RecoverAI Recovery Rate vs Baseline</div>
               <div className="text-lg font-bold text-taupe-100 font-mono">
                 {result.recoverai.recovery_rate_pct}% vs {result.baseline.recovery_rate_pct}%
               </div>
+            </div>
+          </div>
+
+          {/* Detailed Metric Cards Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-charcoal-850 p-4 rounded-lg border border-taupe-800/80 space-y-1">
+              <div className="text-[11px] font-semibold text-taupe-400 uppercase tracking-wider">Revenue at Risk</div>
+              <div className="text-xl font-bold text-taupe-100 mt-1">₹{result.total_revenue_at_risk.toLocaleString()}</div>
+              <div className="text-[11px] text-taupe-500 font-mono">10,000 Payment Events</div>
+            </div>
+
+            <div className="bg-charcoal-850 p-4 rounded-lg border border-taupe-800/80 space-y-1">
+              <div className="text-[11px] font-semibold text-taupe-400 uppercase tracking-wider">Baseline Recovered Revenue</div>
+              <div className="text-xl font-bold text-taupe-200 mt-1">₹{result.baseline.recovered_revenue.toLocaleString()}</div>
+              <div className="text-[11px] text-taupe-400 font-mono">{result.baseline.recovery_rate_pct}% Recovery Rate</div>
+            </div>
+
+            <div className="bg-charcoal-850 p-4 rounded-lg border border-taupe-800/80 space-y-1">
+              <div className="text-[11px] font-semibold text-taupe-400 uppercase tracking-wider">RecoverAI Recovered Revenue</div>
+              <div className="text-xl font-bold text-olive-400 mt-1">₹{result.recoverai.recovered_revenue.toLocaleString()}</div>
+              <div className="text-[11px] text-olive-300 font-mono">{result.recoverai.recovery_rate_pct}% Recovery Rate</div>
+            </div>
+
+            <div className="bg-charcoal-850 p-4 rounded-lg border border-taupe-800/80 space-y-1">
+              <div className="text-[11px] font-semibold text-taupe-400 uppercase tracking-wider">Incremental Recovery</div>
+              <div className="text-xl font-bold text-olive-300 mt-1">+₹{result.recoverai.incremental_lift_amount.toLocaleString()}</div>
+              <div className="text-[11px] text-olive-400 font-mono">Net Additional Revenue</div>
             </div>
           </div>
 
@@ -80,16 +133,16 @@ export default function SimulationPage() {
                   <span className="text-taupe-100">₹{result.total_revenue_at_risk.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
-                  <span className="text-taupe-400">Attempted Value:</span>
-                  <span className="text-taupe-100">₹{result.baseline.attempted_value.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
-                  <span className="text-taupe-400">Recovered Revenue:</span>
+                  <span className="text-taupe-400">Baseline Recovered Revenue:</span>
                   <span className="text-taupe-200 font-bold">₹{result.baseline.recovered_revenue.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
-                  <span className="text-taupe-400">Recovery Rate:</span>
+                  <span className="text-taupe-400">Baseline Recovery Rate:</span>
                   <span className="text-taupe-200 font-bold">{result.baseline.recovery_rate_pct}%</span>
+                </div>
+                <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
+                  <span className="text-taupe-400">Attempted Value:</span>
+                  <span className="text-taupe-100">₹{result.baseline.attempted_value.toLocaleString()}</span>
                 </div>
               </div>
             </div>
@@ -105,11 +158,7 @@ export default function SimulationPage() {
 
               <div className="space-y-3 font-mono text-xs">
                 <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
-                  <span className="text-taupe-400">Total Revenue at Risk:</span>
-                  <span className="text-taupe-100">₹{result.total_revenue_at_risk.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
-                  <span className="text-taupe-400">Recovered Revenue:</span>
+                  <span className="text-taupe-400">RecoverAI Recovered Revenue:</span>
                   <span className="text-olive-400 font-bold">₹{result.recoverai.recovered_revenue.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
@@ -117,8 +166,16 @@ export default function SimulationPage() {
                   <span className="text-olive-400 font-bold">{result.recoverai.recovery_rate_pct}%</span>
                 </div>
                 <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
+                  <span className="text-taupe-400">Incremental Recovery:</span>
+                  <span className="text-olive-300 font-bold">+₹{result.recoverai.incremental_lift_amount.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
                   <span className="text-taupe-400">Policy Blocked Actions:</span>
                   <span className="text-rust-400 font-bold">{result.recoverai.blocked_actions}</span>
+                </div>
+                <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
+                  <span className="text-taupe-400">HITL Escalations:</span>
+                  <span className="text-amberTaupe-400 font-bold">{result.recoverai.hitl_escalations}</span>
                 </div>
                 <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
                   <span className="text-taupe-400">Stopping Rule Activations:</span>

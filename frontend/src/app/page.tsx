@@ -3,30 +3,47 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { 
-  AlertOctagon, 
-  ShieldCheck, 
-  TrendingUp, 
   ArrowUpRight, 
   Lock, 
   RefreshCcw,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  Layers
+  Layers,
+  PlaySquare,
+  TrendingUp,
+  ShieldAlert,
+  UserCheck,
+  AlertOctagon
 } from "lucide-react";
-import { fetchAnalyticsSummary, fetchTransactions } from "@/lib/api";
-import { AnalyticsSummary, PaymentEvent } from "@/lib/types";
+import { fetchAnalyticsSummary, fetchTransactions, runBatchSimulation, fetchLatestBenchmark } from "@/lib/api";
+import { AnalyticsSummary, PaymentEvent, BenchmarkResult } from "@/lib/types";
 
 export default function OverviewPage() {
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [recentEvents, setRecentEvents] = useState<PaymentEvent[]>([]);
+  const [benchmarkResult, setBenchmarkResult] = useState<BenchmarkResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [runningSim, setRunningSim] = useState(false);
 
   const loadData = () => {
-    Promise.all([fetchAnalyticsSummary(), fetchTransactions(undefined, undefined)])
-      .then(([sumData, txData]) => {
+    setLoading(true);
+    // Load summary and transactions
+    Promise.all([
+      fetchAnalyticsSummary(), 
+      fetchTransactions(undefined, undefined),
+      fetchLatestBenchmark()
+    ])
+      .then(([sumData, txData, benchData]) => {
         setSummary(sumData);
         setRecentEvents(txData.slice(0, 8));
+        
+        // Try localStorage cache if fetch returned null
+        if (benchData) {
+          setBenchmarkResult(benchData);
+        } else {
+          try {
+            const cached = localStorage.getItem("recoverai_latest_benchmark");
+            if (cached) setBenchmarkResult(JSON.parse(cached));
+          } catch (e) {}
+        }
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -35,6 +52,21 @@ export default function OverviewPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  const handleRunBenchmark = async () => {
+    setRunningSim(true);
+    try {
+      const res = await runBatchSimulation(10000);
+      setBenchmarkResult(res);
+      try {
+        localStorage.setItem("recoverai_latest_benchmark", JSON.stringify(res));
+      } catch (e) {}
+    } catch (err) {
+      console.error("Benchmark run error:", err);
+    } finally {
+      setRunningSim(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -50,12 +82,14 @@ export default function OverviewPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Link
-            href="/simulation"
-            className="px-3 py-1.5 bg-olive-800 hover:bg-olive-700 text-olive-100 text-xs font-semibold rounded border border-olive-600/60 transition shadow-sm"
+          <button
+            onClick={handleRunBenchmark}
+            disabled={runningSim}
+            className="px-3.5 py-1.5 bg-olive-800 hover:bg-olive-700 disabled:opacity-50 text-olive-100 text-xs font-semibold rounded border border-olive-600/60 transition shadow-sm flex items-center gap-1.5"
           >
-            Run 10,000 Event Benchmark
-          </Link>
+            {runningSim ? <RefreshCcw className="w-3.5 h-3.5 animate-spin" /> : <PlaySquare className="w-3.5 h-3.5" />}
+            {runningSim ? "Simulating..." : "Run 10,000 Event Benchmark"}
+          </button>
           <button
             onClick={loadData}
             className="p-1.5 bg-charcoal-800 hover:bg-charcoal-750 text-taupe-300 rounded border border-taupe-800 transition"
@@ -66,32 +100,83 @@ export default function OverviewPage() {
         </div>
       </div>
 
+      {/* Benchmark Results Banner (If Benchmark Executed / Loaded) */}
+      {benchmarkResult && (
+        <div className="bg-charcoal-850 p-5 rounded-lg border border-olive-800/80 space-y-4 shadow-sm">
+          <div className="flex items-center justify-between border-b border-taupe-800/80 pb-3">
+            <div className="flex items-center gap-2">
+              <PlaySquare className="w-4 h-4 text-olive-400" />
+              <h3 className="font-bold text-taupe-100 text-sm">10,000-Event Benchmark Results Summary</h3>
+            </div>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-olive-950 text-olive-300 border border-olive-800/80">
+              Live Simulation Verified
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
+            <div className="bg-charcoal-950 p-3 rounded border border-taupe-800/60">
+              <span className="text-taupe-400 text-[10px] uppercase block font-sans font-semibold">Revenue at Risk</span>
+              <span className="text-taupe-100 font-bold text-sm">₹{benchmarkResult.total_revenue_at_risk.toLocaleString()}</span>
+            </div>
+            <div className="bg-charcoal-950 p-3 rounded border border-taupe-800/60">
+              <span className="text-taupe-400 text-[10px] uppercase block font-sans font-semibold">Baseline Recovered</span>
+              <span className="text-taupe-200 font-bold text-sm">₹{benchmarkResult.baseline.recovered_revenue.toLocaleString()}</span>
+              <span className="text-[10px] text-taupe-500 block font-sans">({benchmarkResult.baseline.recovery_rate_pct}%)</span>
+            </div>
+            <div className="bg-charcoal-950 p-3 rounded border border-taupe-800/60">
+              <span className="text-taupe-400 text-[10px] uppercase block font-sans font-semibold">RecoverAI Recovered</span>
+              <span className="text-olive-400 font-bold text-sm">₹{benchmarkResult.recoverai.recovered_revenue.toLocaleString()}</span>
+              <span className="text-[10px] text-olive-300 block font-sans">({benchmarkResult.recoverai.recovery_rate_pct}%)</span>
+            </div>
+            <div className="bg-charcoal-950 p-3 rounded border border-taupe-800/60">
+              <span className="text-taupe-400 text-[10px] uppercase block font-sans font-semibold">Incremental Recovery</span>
+              <span className="text-olive-300 font-bold text-sm">+₹{benchmarkResult.recoverai.incremental_lift_amount.toLocaleString()}</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono text-xs pt-1">
+            <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
+              <span className="text-taupe-400 font-sans text-[11px]">Policy Blocked Actions:</span>
+              <span className="text-rust-400 font-bold">{benchmarkResult.recoverai.blocked_actions}</span>
+            </div>
+            <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
+              <span className="text-taupe-400 font-sans text-[11px]">HITL Escalations:</span>
+              <span className="text-amberTaupe-400 font-bold">{benchmarkResult.recoverai.hitl_escalations}</span>
+            </div>
+            <div className="flex justify-between p-2.5 bg-charcoal-950 rounded border border-taupe-800/60">
+              <span className="text-taupe-400 font-sans text-[11px]">Stopping Rule Activations:</span>
+              <span className="text-amberTaupe-400 font-bold">{benchmarkResult.recoverai.stopping_rule_activations}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* KPI Tiles (Live Calculated Stats) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <div className="bg-charcoal-850 p-4 rounded-lg border border-taupe-800/80 shadow-sm space-y-1">
           <div className="text-[11px] font-semibold text-taupe-400 uppercase tracking-wider">Revenue at Risk</div>
           <div className="text-xl font-bold text-taupe-100 mt-1">
-            ₹{summary ? summary.total_revenue_at_risk.toLocaleString() : "..."}
+            ₹{benchmarkResult ? benchmarkResult.total_revenue_at_risk.toLocaleString() : summary ? summary.total_revenue_at_risk.toLocaleString() : "..."}
           </div>
           <div className="text-[11px] text-taupe-500">
-            Across {summary ? summary.total_events : 0} payment events
+            Across {benchmarkResult ? benchmarkResult.total_events : summary ? summary.total_events : 0} events
           </div>
         </div>
 
         <div className="bg-charcoal-850 p-4 rounded-lg border border-taupe-800/80 shadow-sm space-y-1">
           <div className="text-[11px] font-semibold text-taupe-400 uppercase tracking-wider">Recovered Value</div>
           <div className="text-xl font-bold text-olive-400 mt-1">
-            ₹{summary ? summary.recovered_revenue.toLocaleString() : "..."}
+            ₹{benchmarkResult ? benchmarkResult.recoverai.recovered_revenue.toLocaleString() : summary ? summary.recovered_revenue.toLocaleString() : "..."}
           </div>
           <div className="text-[11px] text-olive-300 font-medium">
-            {summary ? summary.recovery_rate_pct : 0}% recovery rate
+            {benchmarkResult ? benchmarkResult.recoverai.recovery_rate_pct : summary ? summary.recovery_rate_pct : 0}% recovery rate
           </div>
         </div>
 
         <div className="bg-charcoal-850 p-4 rounded-lg border border-taupe-800/80 shadow-sm space-y-1">
           <div className="text-[11px] font-semibold text-taupe-400 uppercase tracking-wider">Policy Blocked Actions</div>
           <div className="text-xl font-bold text-rust-400 mt-1">
-            {summary ? summary.blocked_actions : 0}
+            {benchmarkResult ? benchmarkResult.recoverai.blocked_actions : summary ? summary.blocked_actions : 0}
           </div>
           <div className="text-[11px] text-taupe-500">
             Prevented by Policy PEP
@@ -101,7 +186,7 @@ export default function OverviewPage() {
         <div className="bg-charcoal-850 p-4 rounded-lg border border-taupe-800/80 shadow-sm space-y-1">
           <div className="text-[11px] font-semibold text-taupe-400 uppercase tracking-wider">HITL Escalations</div>
           <div className="text-xl font-bold text-amberTaupe-400 mt-1">
-            {summary ? summary.hitl_escalations : 0}
+            {benchmarkResult ? benchmarkResult.recoverai.hitl_escalations : summary ? summary.hitl_escalations : 0}
           </div>
           <div className="text-[11px] text-taupe-500">
             High-value balance reviews
@@ -109,12 +194,12 @@ export default function OverviewPage() {
         </div>
 
         <div className="bg-charcoal-850 p-4 rounded-lg border border-taupe-800/80 shadow-sm space-y-1">
-          <div className="text-[11px] font-semibold text-taupe-400 uppercase tracking-wider">Authorized Executions</div>
-          <div className="text-xl font-bold text-taupe-200 mt-1">
-            {summary ? summary.allowed_actions : 0}
+          <div className="text-[11px] font-semibold text-taupe-400 uppercase tracking-wider">Incremental Lift</div>
+          <div className="text-xl font-bold text-olive-300 mt-1">
+            {benchmarkResult ? `+₹${benchmarkResult.recoverai.incremental_lift_amount.toLocaleString()}` : summary ? summary.allowed_actions : 0}
           </div>
           <div className="text-[11px] text-taupe-500">
-            Smart Retry & Payment Links
+            {benchmarkResult ? "vs Baseline Strategy" : "Smart Retry & Links"}
           </div>
         </div>
       </div>

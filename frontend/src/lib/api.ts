@@ -63,6 +63,16 @@ export async function runBatchSimulation(eventCount: number = 10000) {
   return res.json();
 }
 
+export async function fetchLatestBenchmark() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/simulation/latest`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return res.json();
+  } catch (e) {
+    return null;
+  }
+}
+
 export async function fetchAuditLogs() {
   const res = await fetch(`${API_BASE_URL}/audit/`, { cache: 'no-store' });
   if (!res.ok) throw new Error("Failed to fetch audit logs");
