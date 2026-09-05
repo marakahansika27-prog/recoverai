@@ -30,6 +30,18 @@ except Exception:
 
 def init_db():
     global engine
+    # Import all models to ensure SQLModel metadata registry is populated
+    try:
+        import app.models.event
+        import app.models.decision
+        import app.models.policy
+        import app.models.audit
+        import app.models.simulation
+        import app.models.account
+        import app.models.hitl
+    except Exception as e:
+        logger.warning(f"Model import notice: {e}")
+
     try:
         # Attempt metadata creation on primary engine
         SQLModel.metadata.create_all(engine)
